@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestionnaire de Congés - BFB (Limite 3.5/jour)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+    .badge-valide { background-color: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+    .badge-refuse { background-color: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+    .badge-en-attente { background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+  </style>
+</head>
+<body class="text-slate-800">
+
+  <!-- En-tête -->
+  <header class="bg-slate-900 text-white shadow-md sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="bg-indigo-600 p-2 rounded-lg">
+          <i data-lucide="calendar" class="w-6 h-6 text-white"></i>
+        </div>
+        <div>
+          <h1 class="text-xl font-bold tracking-wide">Gestionnaire de Congés BFB</h1>
+          <p class="text-xs text-slate-400">Effectif: 70 agents | Seuil max: 3,5 pers/jour (5% hebdo)</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="fetchGoogleSheetData()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-sm">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i> Synchroniser Google Sheet
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+
+    <!-- Bannière de Statut Google Sheet -->
+    <div id="statusBanner" class="hidden p-4 rounded-xl text-sm font-medium flex items-center justify-between"></div>
+
+    <!-- Dashboard KPI -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div>
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Demandes Totales</p>
+          <p id="kpiTotal" class="text-2xl font-bold text-slate-900 mt-1">0</p>
+        </div>
+        <div class="p-3 bg-slate-100 rounded-xl text-slate-600"><i data-lucide="files" class="w-6 h-6"></i></div>
+      </div>
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div>
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Demandes Validées</p>
+          <p id="kpiValid" class="text-2xl font-bold text-emerald-600 mt-1">0</p>
+        </div>
+        <div class="p-3 bg-emerald-50 rounded-xl text-emerald-600"><i data-lucide="check-circle" class="w-6 h-6"></i></div>
+      </div>
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div>
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">En Attente</p>
+          <p id="kpiPending" class="text-2xl font-bold text-amber-600 mt-1">0</p>
+        </div>
+        <div class="p-3 bg-amber-50 rounded-xl text-amber-600"><i data-lucide="clock" class="w-6 h-6"></i></div>
+      </div>
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div>
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Capacité Max J.</p>
+          <p class="text-2xl font-bold text-indigo-600 mt-1">3,5 <span class="text-xs text-slate-500 font-normal">agents/j</span></p>
+        </div>
+        <div class="p-3 bg-indigo-50 rounded-xl text-indigo-600"><i data-lucide="users" class="w-6 h-6"></i></div>
+      </div>
+    </div>
+
+    <!-- Section Principale Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- Colonne Gauche: Calendrier & Capacité -->
+      <div class="lg:col-span-2 space-y-6">
+        
+        <!-- Vue Capacité par Jour -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+            <div>
+              <h2 class="text-lg font-bold text-slate-900">Capacité & Présence Journalière</h2>
+              <p class="text-xs text-slate-500">Seuil d'alerte configuré à 3,5 absents par jour</p>
+            </div>
+            <input type="month" id="monthFilter" value="2026-05" onchange="renderCalendar()" class="bg-slate-50 border border-slate-300 text-slate-800 text-sm rounded-lg p-2 focus:ring-indigo-500 focus:border-indigo-500">
+          </div>
+
+          <div id="calendarGrid" class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <!-- Injecté en JS -->
+          </div>
+        </div>
+
+        <!-- Tableau des Demandes -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between gap-4 items-center">
+            <h2 class="text-lg font-bold text-slate-900">Demandes de Congés</h2>
+            <div class="flex items-center gap-2 w-full sm:w-auto">
+              <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Rechercher agent, matricule..." class="w-full sm:w-64 bg-slate-50 border border-slate-300 text-slate-800 text-sm rounded-lg px-3 py-2">
+              <select id="statusSelect" onchange="filterTable()" class="bg-slate-50 border border-slate-300 text-slate-800 text-sm rounded-lg px-3 py-2">
+                <option value="ALL">Tous les statuts</option>
+                <option value="Validé">Validés</option>
+                <option value="En attente">En attente</option>
+                <option value="Refusé">Refusés</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto max-h-[450px]">
+            <table class="w-full text-sm text-left text-slate-600">
+              <thead class="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0 border-b border-slate-200">
+                <tr>
+                  <th class="px-4 py-3">Employé</th>
+                  <th class="px-4 py-3">Période</th>
+                  <th class="px-4 py-3">Jours</th>
+                  <th class="px-4 py-3">Type</th>
+                  <th class="px-4 py-3">Statut</th>
+                  <th class="px-4 py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody id="tableBody" class="divide-y divide-slate-100">
+                <!-- Injecté par JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Colonne Droite: Simulateur & Contrôle -->
+      <div class="space-y-6">
+        
+        <!-- Simulateur d'acceptation -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 class="text-lg font-bold text-slate-900 mb-1">Simuler / Soumettre un Congé</h2>
+          <p class="text-xs text-slate-500 mb-4">Vérifiez la disponibilité par rapport à la règle des 3,5 agents/jour</p>
+
+          <form id="leaveForm" onsubmit="handleFormSubmit(event)" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Nom du salarié</label>
+              <input type="text" id="formNom" required class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-sm" placeholder="Ex: RAKOTO Fanirinatsoa">
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Matricule</label>
+                <input type="text" id="formMatricule" required class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-sm" placeholder="CN01153">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Type</label>
+                <select id="formType" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-sm">
+                  <option value="Congé Payé">Congé Payé</option>
+                  <option value="Permission">Permission</option>
+                  <option value="Maladie">Maladie</option>
+                  <option value="Maternité/Paternité">Maternité/Paternité</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Date Début</label>
+                <input type="date" id="formDateStart" onchange="checkCapacityImpact()" required class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Date Fin</label>
+                <input type="date" id="formDateEnd" onchange="checkCapacityImpact()" required class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-sm">
+              </div>
+            </div>
+
+            <!-- Box d'impact -->
+            <div id="impactAlert" class="hidden p-3 rounded-xl border text-xs font-medium"></div>
+
+            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg text-sm transition shadow-sm">
+              Ajouter la demande
+            </button>
+          </form>
+        </div>
+
+        <!-- Légende / Guide -->
+        <div class="bg-indigo-900 text-indigo-100 p-6 rounded-2xl shadow-sm space-y-3">
+          <h3 class="font-bold text-white flex items-center gap-2">
+            <i data-lucide="info" class="w-5 h-5 text-indigo-400"></i>
+            Règle des 3,5 agents/jour
+          </h3>
+          <p class="text-xs leading-relaxed text-indigo-200">
+            Pour une équipe de 70 agents à 40h/semaine, un taux de congé hebdo cible de 5% équivaut à 140 heures de congé autorisées par semaine, soit exactement <strong>3,5 agents absents par jour</strong> (en journées de 8h).
+          </p>
+          <div class="text-xs space-y-1.5 pt-2 border-t border-indigo-800">
+            <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span> 0 à 3 absents : Capacité respectée</div>
+            <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-amber-500 inline-block"></span> 3.5 absents : Seuil maximal atteint</div>
+            <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-rose-500 inline-block"></span> > 3.5 absents : Dépassement de quota</div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <script>
+    // URL directe Google Sheet CSV
+    const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSf3XIv1M6sc2hNkF_V21T7Euobi_6v1xZdO3SmFRV93P4e_pbvIEma_rpbRhrj9sKW1j0Usd2AB4nS/pub?gid=0&single=true&output=csv";
+    const DAILY_CAPACITY_LIMIT = 3.5;
+
+    let leaveData = [];
+
+    // Initialisation
+    document.addEventListener("DOMContentLoaded", () => {
+      lucide.createIcons();
+      fetchGoogleSheetData();
+    });
+
+    // Chargement dynamique du Google Sheet
+    function fetchGoogleSheetData() {
+      showBanner("Chargement des données du Google Sheet...", "info");
+
+      Papa.parse(GOOGLE_SHEET_CSV_URL, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          if (results.data && results.data.length > 0) {
+            parseAndLoadData(results.data);
+            showBanner("Données synchronisées avec succès depuis Google Sheets !", "success");
+          } else {
+            showBanner("Aucune donnée trouvée dans le fichier Google Sheets.", "error");
+          }
+        },
+        error: function(err) {
+          console.error("Erreur PapaParse:", err);
+          showBanner("Erreur lors de la lecture du fichier Google Sheets.", "error");
+        }
+      });
+    }
+
+    // Traitement et normalisation des lignes CSV
+    function parseAndLoadData(rows) {
+      leaveData = rows.map((row, index) => {
+        // Normalisation des clés quelles que soient les majuscules/espaces
+        const getVal = (possibleKeys) => {
+          for (let key of possibleKeys) {
+            let foundKey = Object.keys(row).find(k => k.trim().toLowerCase() === key.toLowerCase());
+            if (foundKey && row[foundKey]) return row[foundKey].trim();
+          }
+          return '';
+        };
+
+        const nom = getVal(["Nom de l'Employé", "Colonne 1", "Nom", "Employé"]) || "Agent Anonyme";
+        const matricule = getVal(["Matricule", "Code"]) || `CN${1000 + index}`;
+        const dateDebut = formatDateStr(getVal(["Date de Début", "Début", "Date début"]));
+        const dateFin = formatDateStr(getVal(["Date de fin", "Fin", "Date fin"])) || dateDebut;
+        const joursPris = parseFloat(getVal(["Jours Pris", "Jours"])) || calculateDaysBetween(dateDebut, dateFin);
+        const typeConge = getVal(["Type de Congé", "Type", "Motif"]) || "Congé Payé";
+        const statut = getVal(["Statut", "Statut ops", "Etat"]) || "Validé";
+
+        return {
+          id: index + 1,
+          nom,
+          matricule,
+          dateDebut,
+          dateFin,
+          joursPris,
+          typeConge,
+          statut: cleanStatut(statut)
+        };
+      }).filter(item => item.dateDebut !== "");
+
+      updateDashboard();
+    }
+
+    function cleanStatut(statut) {
+      const s = statut.toLowerCase();
+      if (s.includes("val") || s.includes("traité") || s.includes("accord")) return "Validé";
+      if (s.includes("refus") || s.includes("annul")) return "Refusé";
+      return "En attente";
+    }
+
+    function formatDateStr(dateStr) {
+      if (!dateStr) return "";
+      if (dateStr.includes("00:00:00")) dateStr = dateStr.replace("00:00:00", "").trim();
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      return d.toISOString().split('T')[0];
+    }
+
+    function calculateDaysBetween(start, end) {
+      if (!start || !end) return 1;
+      const s = new Date(start);
+      const e = new Date(end);
+      const diff = (e - s) / (1000 * 60 * 60 * 24);
+      return diff >= 0 ? diff + 1 : 1;
+    }
+
+    // Mise à jour de l'UI globale
+    function updateDashboard() {
+      renderKPIs();
+      renderTable(leaveData);
+      renderCalendar();
+      lucide.createIcons();
+    }
+
+    function renderKPIs() {
+      document.getElementById("kpiTotal").innerText = leaveData.length;
+      document.getElementById("kpiValid").innerText = leaveData.filter(d => d.statut === "Validé").length;
+      document.getElementById("kpiPending").innerText = leaveData.filter(d => d.statut === "En attente").length;
+    }
+
+    // Rendu du tableau
+    function renderTable(data) {
+      const tbody = document.getElementById("tableBody");
+      tbody.innerHTML = "";
+
+      if (data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Aucune demande trouvée.</td></tr>`;
+        return;
+      }
+
+      data.forEach(item => {
+        let badgeClass = "badge-en-attente";
+        if (item.statut === "Validé") badgeClass = "badge-valide";
+        if (item.statut === "Refusé") badgeClass = "badge-refuse";
+
+        const tr = document.createElement("tr");
+        tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
+        tr.innerHTML = `
+          <td class="px-4 py-3 font-medium text-slate-900">
+            ${item.nom}
+            <span class="block text-xs text-slate-400">${item.matricule}</span>
+          </td>
+          <td class="px-4 py-3 text-xs whitespace-nowrap">
+            ${item.dateDebut} <i data-lucide="arrow-right" class="inline w-3 h-3 text-slate-400"></i> ${item.dateFin}
+          </td>
+          <td class="px-4 py-3 font-semibold text-slate-800">${item.joursPris} j</td>
+          <td class="px-4 py-3 text-xs">${item.typeConge}</td>
+          <td class="px-4 py-3 text-xs">
+            <span class="px-2.5 py-1 rounded-full text-xs font-semibold ${badgeClass}">${item.statut}</span>
+          </td>
+          <td class="px-4 py-3 text-right space-x-1">
+            <button onclick="changeStatus(${item.id}, 'Validé')" title="Valider" class="p-1 text-emerald-600 hover:bg-emerald-50 rounded"><i data-lucide="check" class="w-4 h-4"></i></button>
+            <button onclick="changeStatus(${item.id}, 'Refusé')" title="Refuser" class="p-1 text-rose-600 hover:bg-rose-50 rounded"><i data-lucide="x" class="w-4 h-4"></i></button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+      lucide.createIcons();
+    }
+
+    function filterTable() {
+      const search = document.getElementById("searchInput").value.toLowerCase();
+      const status = document.getElementById("statusSelect").value;
+
+      const filtered = leaveData.filter(d => {
+        const matchesSearch = d.nom.toLowerCase().includes(search) || d.matricule.toLowerCase().includes(search);
+        const matchesStatus = (status === "ALL") || (d.statut === status);
+        return matchesSearch && matchesStatus;
+      });
+
+      renderTable(filtered);
+    }
+
+    function changeStatus(id, newStatus) {
+      const item = leaveData.find(d => d.id === id);
+      if (item) {
+        item.statut = newStatus;
+        updateDashboard();
+      }
+    }
+
+    // Calendrier & Calcul de la Capacité Journalière
+    function renderCalendar() {
+      const monthVal = document.getElementById("monthFilter").value; // Format YYYY-MM
+      const [year, month] = monthVal.split("-").map(Number);
+      
+      const grid = document.getElementById("calendarGrid");
+      grid.innerHTML = "";
+
+      const daysInMonth = new Date(year, month, 0).getDate();
+
+      // Compter les absents par jour (uniquement ceux dont le statut est "Validé")
+      let dailyAbsences = {};
+
+      leaveData.filter(d => d.statut === "Validé").forEach(d => {
+        let curr = new Date(d.dateDebut);
+        let end = new Date(d.dateFin);
+
+        while (curr <= end) {
+          // Ignorer samedi (6) et dimanche (0)
+          if (curr.getDay() !== 0 && curr.getDay() !== 6) {
+            let dayKey = curr.toISOString().split('T')[0];
+            dailyAbsences[dayKey] = (dailyAbsences[dayKey] || 0) + 1;
+          }
+          curr.setDate(curr.getDate() + 1);
+        }
+      });
+
+      // Générer les cartes des jours du mois
+      for (let day = 1; day <= daysInMonth; day++) {
+        let dObj = new Date(year, month - 1, day);
+        let dayOfWeek = dObj.getDay();
+
+        // Afficher seulement du Lundi au Vendredi
+        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+          let dateKey = dObj.toISOString().split('T')[0];
+          let absents = dailyAbsences[dateKey] || 0;
+
+          let cardBg = "bg-emerald-50 border-emerald-200 text-emerald-900";
+          let badgeBg = "bg-emerald-200 text-emerald-800";
+          let statusText = "Capacité OK";
+
+          if (absents === DAILY_CAPACITY_LIMIT) {
+            cardBg = "bg-amber-50 border-amber-200 text-amber-900";
+            badgeBg = "bg-amber-200 text-amber-800";
+            statusText = "Seuil Max";
+          } else if (absents > DAILY_CAPACITY_LIMIT) {
+            cardBg = "bg-rose-50 border-rose-200 text-rose-900";
+            badgeBg = "bg-rose-200 text-rose-800";
+            statusText = "Dépassement !";
+          }
+
+          const dayNames = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
+
+          const div = document.createElement("div");
+          div.className = `p-3 rounded-xl border flex flex-col justify-between h-24 ${cardBg} transition hover:shadow-sm`;
+          div.innerHTML = `
+            <div class="flex justify-between items-start">
+              <span class="text-xs font-bold uppercase text-slate-500">${dayNames[dayOfWeek]} ${day}</span>
+              <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${badgeBg}">${statusText}</span>
+            </div>
+            <div class="mt-2">
+              <span class="text-xl font-extrabold">${absents}</span>
+              <span class="text-xs opacity-75">/ ${DAILY_CAPACITY_LIMIT} absents</span>
+            </div>
+          `;
+          grid.appendChild(div);
+        }
+      }
+    }
+
+    // Vérification dynamique du formulaire de simulation
+    function checkCapacityImpact() {
+      const start = document.getElementById("formDateStart").value;
+      const end = document.getElementById("formDateEnd").value;
+      const alertBox = document.getElementById("impactAlert");
+
+      if (!start || !end) {
+        alertBox.className = "hidden";
+        return;
+      }
+
+      let curr = new Date(start);
+      let endDate = new Date(end);
+
+      let overflowDates = [];
+
+      while (curr <= endDate) {
+        if (curr.getDay() !== 0 && curr.getDay() !== 6) {
+          let dateKey = curr.toISOString().split('T')[0];
+          
+          // Calcul des absents actuels pour ce jour
+          let currentAbsents = leaveData.filter(d => d.statut === "Validé").reduce((acc, d) => {
+            let dStart = new Date(d.dateDebut);
+            let dEnd = new Date(d.dateFin);
+            if (new Date(dateKey) >= dStart && new Date(dateKey) <= dEnd) return acc + 1;
+            return acc;
+          }, 0);
+
+          if (currentAbsents + 1 > DAILY_CAPACITY_LIMIT) {
+            overflowDates.push(dateKey);
+          }
+        }
+        curr.setDate(curr.getDate() + 1);
+      }
+
+      alertBox.classList.remove("hidden");
+      if (overflowDates.length > 0) {
+        alertBox.className = "p-3 rounded-xl border bg-rose-50 border-rose-200 text-rose-800 text-xs font-medium space-y-1";
+        alertBox.innerHTML = `
+          <div class="font-bold flex items-center gap-1"><i data-lucide="alert-triangle" class="w-4 h-4"></i> Attention : Dépassement de Quota</div>
+          <p>L'ajout de cette demande dépassera le quota de 3,5 personnes les jours suivants : <strong>${overflowDates.join(', ')}</strong>.</p>
+        `;
+      } else {
+        alertBox.className = "p-3 rounded-xl border bg-emerald-50 border-emerald-200 text-emerald-800 text-xs font-medium";
+        alertBox.innerHTML = `<div class="font-bold flex items-center gap-1"><i data-lucide="check-circle" class="w-4 h-4"></i> Capacité disponible</div><p>Cette demande respecte le quota journalier (≤ 3,5 absents).</p>`;
+      }
+      lucide.createIcons();
+    }
+
+    // Soumission du formulaire
+    function handleFormSubmit(e) {
+      e.preventDefault();
+
+      const nom = document.getElementById("formNom").value;
+      const matricule = document.getElementById("formMatricule").value;
+      const dateDebut = document.getElementById("formDateStart").value;
+      const dateFin = document.getElementById("formDateEnd").value;
+      const typeConge = document.getElementById("formType").value;
+
+      const newLeave = {
+        id: leaveData.length + 1,
+        nom,
+        matricule,
+        dateDebut,
+        dateFin,
+        joursPris: calculateDaysBetween(dateDebut, dateFin),
+        typeConge,
+        statut: "Validé"
+      };
+
+      leaveData.unshift(newLeave);
+      updateDashboard();
+
+      document.getElementById("leaveForm").reset();
+      document.getElementById("impactAlert").className = "hidden";
+      showBanner(`Demande ajoutée avec succès pour ${nom} !`, "success");
+    }
+
+    function showBanner(message, type) {
+      const banner = document.getElementById("statusBanner");
+      banner.classList.remove("hidden", "bg-emerald-100", "text-emerald-800", "bg-rose-100", "text-rose-800", "bg-indigo-100", "text-indigo-800");
+
+      if (type === "success") banner.classList.add("bg-emerald-100", "text-emerald-800");
+      else if (type === "error") banner.classList.add("bg-rose-100", "text-rose-800");
+      else banner.classList.add("bg-indigo-100", "text-indigo-800");
+
+      banner.innerHTML = `<span>${message}</span> <button onclick="this.parentElement.classList.add('hidden')" class="text-xs underline font-bold">Fermer</button>`;
+    }
+  </script>
+</body>
+</html>
